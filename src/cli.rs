@@ -41,6 +41,15 @@ pub fn main() -> Result<()> {
             "Type 'bender <SUBCOMMAND> --help' for more information about a bender subcommand.",
         )
         .arg(
+            Arg::new("concurrent")
+                .short('c')
+                .long("concurrent")
+                .num_args(1)
+                .global(true)
+                .help("Sets the maximum number of concurrent downloads")
+                .default_value("255"),
+        )
+        .arg(
             Arg::new("dir")
                 .short('d')
                 .long("dir")
@@ -129,6 +138,8 @@ pub fn main() -> Result<()> {
         }
     }
 
+    let concurrent_downloads: usize = (matches.get_one::<String>("concurrent").expect("Unexpected value")).parse::<usize>().unwrap();
+
     // Determine the root working directory, which has either been provided via
     // the -d/--dir switch, or by searching upwards in the file system
     // hierarchy.
@@ -159,6 +170,7 @@ pub fn main() -> Result<()> {
         &sess_arenas,
         matches.get_flag("local"),
         force_fetch,
+        concurrent_downloads
     );
 
     // Read the existing lockfile.

@@ -38,6 +38,9 @@ use crate::src::SourceGroup;
 use crate::target::TargetSpec;
 use crate::util::try_modification_time;
 
+// Semaphore throttling
+use tokio::sync::Semaphore;
+
 /// A session on the command line.
 ///
 /// Contains all the information that is iteratively being gathered and
@@ -78,6 +81,7 @@ pub struct Session<'ctx> {
     // git_throttle: FutureThrottle,
     /// A toggle to disable remote fetches & clones
     pub local_only: bool,
+    concurrent_downloads: usize,
 }
 
 impl<'sess, 'ctx: 'sess> Session<'ctx> {
@@ -89,6 +93,7 @@ impl<'sess, 'ctx: 'sess> Session<'ctx> {
         arenas: &'ctx SessionArenas,
         local_only: bool,
         force_fetch: bool,
+        concurrent_downloads: usize,
     ) -> Session<'ctx> {
         Session {
             root,
@@ -114,6 +119,7 @@ impl<'sess, 'ctx: 'sess> Session<'ctx> {
             cache: Default::default(),
             // git_throttle: FutureThrottle::new(8),
             local_only,
+            concurrent_downloads,
         }
     }
 
@@ -418,6 +424,8 @@ pub struct SessionIo<'sess, 'ctx: 'sess> {
     /// The underlying session.
     pub sess: &'sess Session<'ctx>,
     git_versions: Mutex<IndexMap<PathBuf, GitVersions<'ctx>>>,
+    // Semaphore for throttling
+    semaphore: Arc<Semaphore>,
 }
 
 impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
@@ -426,6 +434,7 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
         SessionIo {
             sess,
             git_versions: Mutex::new(IndexMap::new()),
+            semaphore: Arc::new(Semaphore::new(sess.concurrent_downloads)),
         }
     }
 
@@ -461,6 +470,9 @@ impl<'io, 'sess: 'io, 'ctx: 'sess> SessionIo<'sess, 'ctx> {
         url: &str,
         force_fetch: bool,
     ) -> Result<Git<'ctx>> {
+        let _permit = self.semaphore.acquire().await.unwrap(); // Acquire a permit, used for throttling
+        let _ = tokio::time::sleep(tokio::time::Duration::from_millis(100)); // Delay to try to avoid overloading the server
+
         // TODO: Make the assembled future shared and keep it in a lookup table.
         //       Then use that table to return the future if it already exists.
         //       This ensures that the gitdb is setup only once, and makes the
